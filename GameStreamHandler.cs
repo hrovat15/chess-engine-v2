@@ -73,13 +73,45 @@ namespace chess_engine_v2
 
         private async Task MakeMove()
         {
-            var bestMove = _engineSearch.GetBestMove(_board, depth: 5); // Adjust depth as needed
+            Console.WriteLine("MakeMove: starting search");
+            // Run search on threadpool and enforce a timeout to avoid freezing
+            var searchTask = Task.Run(() => _engineSearch.GetBestMove(_board, depth: 4)); // Adjust depth as needed
+            var finished = await Task.WhenAny(searchTask, Task.Delay(TimeSpan.FromSeconds(15)));
+            if (finished != searchTask)
+            {
+                Console.WriteLine("MakeMove: search timed out");
+                return; // give up this turn
+            }
+
+            var bestMove = searchTask.Result;
+            Console.WriteLine($"MakeMove: bestMove {bestMove.From}->{bestMove.To} flags={bestMove.Flags}");
+
             var request = new HttpRequestMessage(HttpMethod.Post, $"https://lichess.org/api/bot/game/{_gameId}/move/{ToUCI(bestMove)}");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Program.token);
             request.Content = new StringContent(""); // Lichess API requires a body, even if it's empty
-            await _http.SendAsync(request);
-            Console.WriteLine("made move " + ToUCI(bestMove));
-            _board.MakeMove(bestMove);
+
+            try
+            {
+                // enforce a short timeout for network send so we don't block indefinitely
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var resp = await _http.SendAsync(request, cts.Token);
+                Console.WriteLine($"MakeMove: send result {resp.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MakeMove: SendAsync failed: {ex}");
+                return;
+            }
+
+            // apply move locally
+            try
+            {
+                _board.MakeMove(bestMove);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MakeMove: MakeMove failed when applying our move: {ex}");
+            }
 
             string ToUCI(Move move)
             {

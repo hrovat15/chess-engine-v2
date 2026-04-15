@@ -47,6 +47,7 @@ namespace chess_engine_v2
             public int CapturedPiece;
             public int CapturedSquare;
             public int MovingPiece;
+            public ulong PrevAllPieces;
             public int PrevEnPassantSquare;
             public bool PrevWhiteCanCastleK;
             public bool PrevWhiteCanCastleQ;
@@ -60,6 +61,7 @@ namespace chess_engine_v2
 
         public void MakeMove(Move move)
         {
+            // Debug logging to help track down make/unmake issues
             ulong fromMask = 1UL << move.From;
             ulong toMask = 1UL << move.To;
             bool isWhite = sideToMove == 0;
@@ -68,6 +70,7 @@ namespace chess_engine_v2
             UndoInfo undo = new UndoInfo
             {
                 CapturedPiece = 0,
+                PrevAllPieces = this.AllPieces,
                 PrevEnPassantSquare = this.enPassantSquare,
                 PrevWhiteCanCastleK = this.WhiteCanCastleK,
                 PrevWhiteCanCastleQ = this.WhiteCanCastleQ,
@@ -178,19 +181,10 @@ namespace chess_engine_v2
                 if (isWhite) { WhiteCanCastleK = false; WhiteCanCastleQ = false; }
                 else { BlackCanCastleK = false; BlackCanCastleQ = false; }
             }
-            if (movingPiece == 4) // Rook moved
-            {
-                if (isWhite)
-                {
-                    if (move.From == 7) WhiteCanCastleK = false;
-                    if (move.From == 0) WhiteCanCastleQ = false;
-                }
-                else
-                {
-                    if (move.From == 63) BlackCanCastleK = false;
-                    if (move.From == 56) BlackCanCastleQ = false;
-                }
-            }
+            if (move.From == 7 || move.To == 7) WhiteCanCastleK = false;
+            if (move.From == 0 || move.To == 0) WhiteCanCastleQ = false;
+            if (move.From == 63 || move.To == 63) BlackCanCastleK = false;
+            if (move.From == 56 || move.To == 56) BlackCanCastleQ = false;
             // FIX: Also revoke castling rights if a rook is captured on its starting square
             if (undo.CapturedPiece == 4)
             {
@@ -339,15 +333,24 @@ namespace chess_engine_v2
         public bool IsSquareAttacked(int sq, bool attackerIsWhite)
         {
             // 1. Attacked by Pawns
+            ulong targetMask = 1UL << sq;
             if (attackerIsWhite)
             {
-                ulong pawnAttacks = ((WPawns << 7) & notHFile) | ((WPawns << 9) & notAFile);
-                if ((pawnAttacks & (1UL << sq)) != 0) return true;
+                // If we are looking for WHITE attackers, can a white pawn 
+                // reach 'sq' from below?
+                ulong attackers = 0;
+                attackers |= (targetMask >> 7) & notAFile; // Look south-east
+                attackers |= (targetMask >> 9) & notHFile; // Look south-west
+                if ((attackers & WPawns) != 0) return true;
             }
             else
             {
-                ulong pawnAttacks = ((BPawns >> 7) & notAFile) | ((BPawns >> 9) & notHFile);
-                if ((pawnAttacks & (1UL << sq)) != 0) return true;
+                // If we are looking for BLACK attackers, can a black pawn 
+                // reach 'sq' from above?
+                ulong attackers = 0;
+                attackers |= (targetMask << 7) & notHFile; // Look north-west
+                attackers |= (targetMask << 9) & notAFile; // Look north-east
+                if ((attackers & BPawns) != 0) return true;
             }
 
             // 2. Attacked by Knights

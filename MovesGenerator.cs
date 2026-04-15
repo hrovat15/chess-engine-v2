@@ -14,18 +14,50 @@ namespace chess_engine_v2
         {
             this.board = board;
 
-            // FIX: Allocate a fresh buffer each call so recursive search calls
-            // (e.g. during alpha-beta) don't overwrite each other's move lists.
-            Move[] moves = new Move[256];
+            // Step 1: Generate all pseudo-legal moves
+            Move[] pseudoMoves = new Move[256];
             int moveCount = 0;
 
             if (board.sideToMove == 0)
-                generateWhite(moves, ref moveCount);
+                generateWhite(pseudoMoves, ref moveCount);
             else
-                generateBlack(moves, ref moveCount);
-            // Mark end of valid moves with a default (zero) move
-            if (moveCount < moves.Length) moves[moveCount] = default;
-            return moves;
+                generateBlack(pseudoMoves, ref moveCount);
+
+            // Step 2: Filter out moves that leave own king in check
+            // IMPORTANT: capture movingSide BEFORE the loop, BEFORE any MakeMove call
+            int movingSide = board.sideToMove;
+
+            Move[] legalMoves = new Move[256];
+            int legalCount = 0;
+
+            for (int i = 0; i < moveCount; i++)
+            {
+                board.MakeMove(pseudoMoves[i]);
+
+                // After MakeMove, sideToMove has flipped to the opponent.
+                // We want to know: does the opponent now attack the king of 'movingSide'?
+                ulong kingBB = movingSide == 0 ? board.WKings : board.BKings;
+                bool illegal = (kingBB == 0); // king captured = definitely illegal
+
+                if (!illegal)
+                {
+                    int kingSq = BitOperations.TrailingZeroCount(kingBB);
+                    // board.sideToMove is now the opponent — ask if THEY attack our king square
+                    bool attackerIsWhite = (board.sideToMove == 0);
+                    illegal = board.IsSquareAttacked(kingSq, attackerIsWhite);
+                }
+
+                board.UnmakeMove(pseudoMoves[i]);
+
+                if (!illegal)
+                    legalMoves[legalCount++] = pseudoMoves[i];
+            }
+
+            // Sentinel: mark end of valid moves
+            if (legalCount < legalMoves.Length)
+                legalMoves[legalCount] = default;
+
+            return legalMoves;
         }
 
         private void generateWhite(Move[] moves, ref int moveCount)
@@ -180,15 +212,15 @@ namespace chess_engine_v2
             ulong doublePush = ((push & 0x0000000000FF0000) << 8) & board.FreeSquares;
             AddMove(doublePush >> 16, 16, 1, moves, ref moveCount);
 
-            AddMove(((board.WPawns << 7) & board.notAFile & board.BPieces) >> 7, 7, 4, moves, ref moveCount);
-            AddMove(((board.WPawns << 9) & board.notHFile & board.BPieces) >> 9, 9, 4, moves, ref moveCount);
+            AddMove(((board.WPawns << 7) & board.notHFile & board.BPieces) >> 7, 7, 4, moves, ref moveCount);
+            AddMove(((board.WPawns << 9) & board.notAFile & board.BPieces) >> 9, 9, 4, moves, ref moveCount);
 
             if (board.enPassantSquare >= 0)
             {
                 ulong epBB = 1UL << board.enPassantSquare;
-                ulong epLeft = (board.WPawns << 7) & board.notAFile & epBB;
+                ulong epLeft = (board.WPawns << 7) & board.notHFile & epBB;
                 if (epLeft != 0) AddMove(epLeft >> 7, 7, 5, moves, ref moveCount);
-                ulong epRight = (board.WPawns << 9) & board.notHFile & epBB;
+                ulong epRight = (board.WPawns << 9) & board.notAFile & epBB;
                 if (epRight != 0) AddMove(epRight >> 9, 9, 5, moves, ref moveCount);
             }
         }
@@ -201,8 +233,8 @@ namespace chess_engine_v2
             ulong doublePush = ((push & 0x0000FF0000000000) >> 8) & board.FreeSquares;
             AddMove(doublePush << 16, -16, 1, moves, ref moveCount);
 
-            AddMove(((board.BPawns >> 7) & board.notHFile & board.WPieces) << 7, -7, 4, moves, ref moveCount);
-            AddMove(((board.BPawns >> 9) & board.notAFile & board.WPieces) << 9, -9, 4, moves, ref moveCount);
+            AddMove(((board.BPawns >> 7) & board.notAFile & board.WPieces) << 7, -7, 4, moves, ref moveCount);
+            AddMove(((board.BPawns >> 9) & board.notHFile & board.WPieces) << 9, -9, 4, moves, ref moveCount);
 
             if (board.enPassantSquare >= 0)
             {
@@ -246,14 +278,13 @@ namespace chess_engine_v2
                     targets -= targetBit;
                 }
 
-                // FIX: Castling now checks that the king and transit squares are not attacked
                 if (board.WhiteCanCastleK)
                 {
                     if ((board.AllPieces & ((1UL << 5) | (1UL << 6))) == 0
                         && (board.WRooks & (1UL << 7)) != 0
-                        && !board.IsSquareAttacked(4, false)  // e1 not in check
-                        && !board.IsSquareAttacked(5, false)  // f1 not attacked
-                        && !board.IsSquareAttacked(6, false)) // g1 not attacked
+                        && !board.IsSquareAttacked(4, false)
+                        && !board.IsSquareAttacked(5, false)
+                        && !board.IsSquareAttacked(6, false))
                     {
                         moves[moveCount++] = new Move(4, 6, 2);
                     }
@@ -262,9 +293,9 @@ namespace chess_engine_v2
                 {
                     if ((board.AllPieces & ((1UL << 1) | (1UL << 2) | (1UL << 3))) == 0
                         && (board.WRooks & (1UL << 0)) != 0
-                        && !board.IsSquareAttacked(4, false)  // e1 not in check
-                        && !board.IsSquareAttacked(3, false)  // d1 not attacked
-                        && !board.IsSquareAttacked(2, false)) // c1 not attacked
+                        && !board.IsSquareAttacked(4, false)
+                        && !board.IsSquareAttacked(3, false)
+                        && !board.IsSquareAttacked(2, false))
                     {
                         moves[moveCount++] = new Move(4, 2, 3);
                     }
@@ -306,14 +337,13 @@ namespace chess_engine_v2
                     targets -= targetBit;
                 }
 
-                // FIX: Castling now checks that the king and transit squares are not attacked
                 if (board.BlackCanCastleK)
                 {
                     if ((board.AllPieces & ((1UL << 61) | (1UL << 62))) == 0
                         && (board.BRooks & (1UL << 63)) != 0
-                        && !board.IsSquareAttacked(60, true)  // e8 not in check
-                        && !board.IsSquareAttacked(61, true)  // f8 not attacked
-                        && !board.IsSquareAttacked(62, true)) // g8 not attacked
+                        && !board.IsSquareAttacked(60, true)
+                        && !board.IsSquareAttacked(61, true)
+                        && !board.IsSquareAttacked(62, true))
                     {
                         moves[moveCount++] = new Move(60, 62, 2);
                     }
@@ -322,9 +352,9 @@ namespace chess_engine_v2
                 {
                     if ((board.AllPieces & ((1UL << 57) | (1UL << 58) | (1UL << 59))) == 0
                         && (board.BRooks & (1UL << 56)) != 0
-                        && !board.IsSquareAttacked(60, true)  // e8 not in check
-                        && !board.IsSquareAttacked(59, true)  // d8 not attacked
-                        && !board.IsSquareAttacked(58, true)) // c8 not attacked
+                        && !board.IsSquareAttacked(60, true)
+                        && !board.IsSquareAttacked(59, true)
+                        && !board.IsSquareAttacked(58, true))
                     {
                         moves[moveCount++] = new Move(60, 58, 3);
                     }
@@ -334,9 +364,6 @@ namespace chess_engine_v2
             }
         }
 
-        // FIX: flags is now a plain ushort parameter (not default) and a fresh local
-        // copy is made per-move so promotion detection doesn't corrupt subsequent moves
-        // in the same batch. Promotion threshold corrected to >= 56 (rank 8) or <= 7 (rank 1).
         private void AddMove(ulong fromPositions, int shift, ushort flags, Move[] moves, ref int moveCount)
         {
             while (fromPositions != 0)
@@ -344,11 +371,9 @@ namespace chess_engine_v2
                 int fromIndex = BitOperations.TrailingZeroCount(fromPositions);
                 int toIndex = fromIndex + shift;
 
-                // FIX: use a fresh copy of flags for every move in this batch
                 ushort moveFlags = flags;
                 if (toIndex >= 56 || toIndex <= 7)
                 {
-                    // Pawn reaching back rank — mark as promotion
                     moveFlags = (flags == 4) ? (ushort)15 : (ushort)11;
                 }
 
