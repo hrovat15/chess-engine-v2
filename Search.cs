@@ -52,29 +52,30 @@ public class Search
 
        for (int i = 0; i < moves.Length; i++)
        {
-           var move = moves[i];
-           if (move.Value == 0) break;
+            var move = moves[i];
+            if (move.Value == 0) break;
 
-           board.MakeMove(move);
-            bool wasLegal = !board.IsSquareAttacked(
-                BitOperations.TrailingZeroCount(board.sideToMove == 1 ? board.WKings : board.BKings),
-                board.sideToMove == 0 // Is the current sideToMove (opponent) attacking?
-            );
+            board.MakeMove(move);
+            bool isWhiteJustMoved = board.sideToMove == 1;
+            ulong kingBitboard = isWhiteJustMoved ? board.WKings : board.BKings;
+            int kingSq = BitOperations.TrailingZeroCount(kingBitboard);
 
-            if (!wasLegal)
+            // If the opponent can attack our king, the move was illegal.
+            if (board.IsSquareAttacked(kingSq, board.sideToMove == 0))
             {
                 board.UnmakeMove(move);
-                continue; // This move was illegal, skip it
+                continue; // Skip this move and don't count it as a legal move
             }
+
             int score = -AlphaBeta(board, depth - 1, -beta, -alpha);
-           board.UnmakeMove(move);
+            board.UnmakeMove(move);
 
            // Pruning: If the score is too good, the opponent won't let us reach this branch
-           if (score >= beta)
-               return beta; // Beta cutoff
+            if (score >= beta)
+                return beta; // Beta cutoff
 
-           if (score > alpha)
-               alpha = score; // Update our best guaranteed score
+            if (score > alpha)
+                alpha = score; // Update our best guaranteed score
        }
 
        return alpha;

@@ -28,6 +28,7 @@ namespace chess_engine_v2
                 {
                     Console.WriteLine("Connecting to Lichess Event Stream...");
                     using var response = await _http.GetAsync("https://lichess.org/api/stream/event", HttpCompletionOption.ResponseHeadersRead);
+                    Console.WriteLine(response);
                     using var stream = await response.Content.ReadAsStreamAsync();
                     using var reader = new StreamReader(stream);
 

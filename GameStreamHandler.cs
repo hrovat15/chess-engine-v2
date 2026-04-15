@@ -1,4 +1,5 @@
-﻿using System;
+﻿using chessEngine.App;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
@@ -72,9 +73,9 @@ namespace chess_engine_v2
 
         private async Task MakeMove()
         {
-            var bestMove = _engineSearch.GetBestMove(_board, depth: 7); // Adjust depth as needed
+            var bestMove = _engineSearch.GetBestMove(_board, depth: 5); // Adjust depth as needed
             var request = new HttpRequestMessage(HttpMethod.Post, $"https://lichess.org/api/bot/game/{_gameId}/move/{ToUCI(bestMove)}");
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "lip_RGGGCfGeGmSe0I0pRYrF");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Program.token);
             request.Content = new StringContent(""); // Lichess API requires a body, even if it's empty
             await _http.SendAsync(request);
             Console.WriteLine("made move " + ToUCI(bestMove));
