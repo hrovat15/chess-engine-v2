@@ -15,6 +15,8 @@ namespace chess_engine_v2
         private bool _myTurn; // Track if it's our turn
         private int counter = 0;
 
+        private string _history = ""; // Move history in UCI format for opening book
+
         public GameStreamHandler(string gameId, HttpClient client, string color)
         {
             _gameId = gameId;
@@ -42,6 +44,7 @@ namespace chess_engine_v2
             {
                 counter++;
                 var line = await reader.ReadLineAsync();
+                Console.WriteLine(line);
                 if (string.IsNullOrWhiteSpace(line) || line.Contains("id"))
                 {
                     counter--;
@@ -51,7 +54,8 @@ namespace chess_engine_v2
                 {
                     var opponentMove = ParseOpponentMove(line);
                     _board.MakeMove(opponentMove);
-                    Console.WriteLine(_board.WPieces);
+                    Console.WriteLine(_board.AllPieces);
+
                     await MakeMove();
                 }
             }
@@ -61,6 +65,7 @@ namespace chess_engine_v2
         {
             var jsonDoc = JsonDocument.Parse(jsonLine);
             var moveStr = jsonDoc.RootElement.GetProperty("moves").GetString();
+            _history = moveStr; // Update history for opening book
             int fromFile = moveStr[moveStr.Length - 4] - 'a';
             int fromRank = moveStr[moveStr.Length - 3] - '1';
             int toFile = moveStr[moveStr.Length - 2] - 'a';
@@ -68,6 +73,16 @@ namespace chess_engine_v2
             Move move = new Move(from: fromRank * 8 + fromFile, to: toRank * 8 + toFile, 0);
             ushort flags = 0;
             if ((1UL << move.To & _board.AllPieces) != 0) flags = 4;
+            if ((fromRank * 8 + fromFile == 60 && toRank * 8 + toFile == 62) ||
+                (fromRank * 8 + fromFile == 4 && (toRank * 8) + toFile == 6))
+            {
+                flags = 2;
+            }
+            if ((fromRank * 8 + fromFile == 60 && toRank * 8 + toFile == 58) ||
+                (fromRank * 8 + fromFile == 4 && toRank * 8 + toFile == 2))
+            {
+                flags = 3;
+            }
             return new Move(from: fromRank * 8 + fromFile, to: toRank * 8 + toFile, flags);
         }
 
@@ -75,7 +90,7 @@ namespace chess_engine_v2
         {
             Console.WriteLine("MakeMove: starting search");
             // Run search on threadpool and enforce a timeout to avoid freezing
-            var searchTask = Task.Run(() => _engineSearch.GetBestMove(_board, depth: 4)); // Adjust depth as needed
+            var searchTask = Task.Run(() => _engineSearch.GetBestMove(_board, _history)); // Adjust depth as needed
             var finished = await Task.WhenAny(searchTask, Task.Delay(TimeSpan.FromSeconds(15)));
             if (finished != searchTask)
             {
